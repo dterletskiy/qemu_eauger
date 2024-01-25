@@ -194,6 +194,13 @@ bool kvm_arm_sve_supported(void);
 bool kvm_arm_mte_supported(void);
 
 /**
+ * kvm_arm_el2_supported:
+ *
+ * Returns true if KVM can enable EL2 and false otherwise.
+ */
+bool kvm_arm_el2_supported(void);
+
+/**
  * kvm_arm_get_max_vm_ipa_size:
  * @ms: Machine state handle
  * @fixed_ipa: True when the IPA limit is fixed at 40. This is the case
@@ -242,7 +249,11 @@ static inline bool kvm_arm_sve_supported(void)
     return false;
 }
 
+<<<<<<< HEAD
 static inline bool kvm_arm_mte_supported(void)
+=======
+static inline bool kvm_arm_el2_supported(void)
+>>>>>>> b9d1fca445 (target/arm/kvm: Add helper to detect EL2 when using KVM)
 {
     return false;
 }
