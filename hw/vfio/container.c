@@ -1145,6 +1145,7 @@ static bool hiod_legacy_vfio_realize(HostIOMMUDevice *hiod, void *opaque,
     /* iova_ranges is a sorted list */
     GList *l = g_list_last(vdev->bcontainer->iova_ranges);
 
+    hiod->agent = opaque;
     /* Only support query HOST_IOMMU_DEVICE_CAP_AW_BITS with legacy backend */
     if (l) {
         Range *range = l->data;
