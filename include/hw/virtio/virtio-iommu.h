@@ -45,6 +45,14 @@ typedef struct IOMMUDevice {
     bool probe_done;
 } IOMMUDevice;
 
+typedef struct VirtioHostIOMMUDevice {
+    void *viommu;
+    PCIBus *bus;
+    uint8_t devfn;
+    HostIOMMUDevice *dev;
+    QLIST_ENTRY(VirtioHostIOMMUDevice) next;
+} VirtioHostIOMMUDevice;
+
 typedef struct IOMMUPciBus {
     PCIBus       *bus;
     IOMMUDevice  *pbdev[]; /* Parent array is sparse, so dynamically alloc */
@@ -57,6 +65,7 @@ struct VirtIOIOMMU {
     struct virtio_iommu_config config;
     uint64_t features;
     GHashTable *as_by_busptr;
+    GHashTable *host_iommu_devices;
     IOMMUPciBus *iommu_pcibus_by_bus_num[PCI_BUS_MAX];
     PCIBus *primary_bus;
     ReservedRegion *prop_resv_regions;
