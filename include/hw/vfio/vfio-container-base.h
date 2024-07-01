@@ -91,6 +91,7 @@ void vfio_container_init(VFIOContainerBase *bcontainer,
                          const VFIOIOMMUClass *ops);
 void vfio_container_destroy(VFIOContainerBase *bcontainer);
 
+GList *vfio_container_get_iova_ranges(const VFIOContainerBase *bcontainer);
 
 #define TYPE_VFIO_IOMMU "vfio-iommu"
 #define TYPE_VFIO_IOMMU_LEGACY TYPE_VFIO_IOMMU "-legacy"
