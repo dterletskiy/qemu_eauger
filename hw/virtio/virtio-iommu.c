@@ -480,11 +480,20 @@ static void virtio_iommu_device_clear(VirtIOIOMMU *s, PCIBus *bus, int devfn)
     if (!sdev) {
         return;
     }
+    sdev->probe_done = false;
+    g_list_free_full(g_steal_pointer(&sdev->resv_regions), g_free);
+    g_list_free_full(g_steal_pointer(&sdev->host_resv_ranges), g_free);
 
-    g_list_free_full(sdev->resv_regions, g_free);
-    sdev->resv_regions = NULL;
-    g_free(sdev);
+    trace_virtio_iommu_device_clear(sdev->iommu_mr.parent_obj.name);
+    memory_region_del_subregion(MEMORY_REGION(&sdev->root),
+                                MEMORY_REGION(&sdev->bypass_mr));
+    memory_region_del_subregion(MEMORY_REGION(&sdev->root),
+                                MEMORY_REGION(&sdev->iommu_mr));
+    address_space_remove_listeners(&sdev->as);
+    /* destroy the address space. This also destroys its root memory region */
+    address_space_destroy(&sdev->as);
     sbus->pbdev[devfn] = NULL;
+    g_free(sdev);
 }
 
 static gboolean hiod_equal(gconstpointer v1, gconstpointer v2)
