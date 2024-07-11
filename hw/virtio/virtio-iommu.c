@@ -139,6 +139,7 @@ static void virtio_iommu_switch_address_space_all(VirtIOIOMMU *s)
     IOMMUPciBus *iommu_pci_bus;
     int i;
 
+    error_report("%s start", __func__);
     g_hash_table_iter_init(&iter, s->as_by_busptr);
     while (g_hash_table_iter_next(&iter, NULL, (void **)&iommu_pci_bus)) {
         for (i = 0; i < PCI_DEVFN_MAX; i++) {
@@ -148,6 +149,7 @@ static void virtio_iommu_switch_address_space_all(VirtIOIOMMU *s)
             virtio_iommu_switch_address_space(iommu_pci_bus->pbdev[i]);
         }
     }
+    error_report("%s end", __func__);
 }
 
 /**
@@ -163,13 +165,16 @@ static IOMMUPciBus *iommu_find_iommu_pcibus(VirtIOIOMMU *s, uint8_t bus_num)
     if (!iommu_pci_bus) {
         GHashTableIter iter;
 
+	error_report("%s bus_num=%d", __func__, bus_num);
         g_hash_table_iter_init(&iter, s->as_by_busptr);
         while (g_hash_table_iter_next(&iter, NULL, (void **)&iommu_pci_bus)) {
             if (pci_bus_num(iommu_pci_bus->bus) == bus_num) {
                 s->iommu_pcibus_by_bus_num[bus_num] = iommu_pci_bus;
+		error_report("%s bus_num=%d found %p", __func__, bus_num, iommu_pci_bus);
                 return iommu_pci_bus;
             }
         }
+	error_report("%s bus_num=%d not found!", __func__, bus_num);
         return NULL;
     }
     return iommu_pci_bus;
@@ -407,6 +412,8 @@ static AddressSpace *virtio_iommu_find_add_as(PCIBus *bus, void *opaque,
     IOMMUPciBus *sbus = g_hash_table_lookup(s->as_by_busptr, bus);
     static uint32_t mr_index;
     IOMMUDevice *sdev;
+
+    error_report("%s bus=%p iommupcibus=%p", __func__, bus, sbus ? sbus : 0);
 
     if (!sbus) {
         sbus = g_malloc0(sizeof(IOMMUPciBus) +
@@ -1432,7 +1439,9 @@ static void virtio_iommu_system_reset(void *opaque)
      * system reset
      */
     s->config.bypass = s->boot_bypass;
+    error_report("%s start", __func__);
     virtio_iommu_switch_address_space_all(s);
+    error_report("%s end", __func__);
 
 }
 
