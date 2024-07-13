@@ -735,6 +735,7 @@ virtio_iommu_unset_iommu_device(PCIBus *bus, void *opaque, int devfn)
     if (!hiod) {
         return;
     }
+    error_report("%s call for devfn=%d", __func__, devfn);
 
     g_hash_table_remove(viommu->host_iommu_devices, &key);
     virtio_iommu_device_clear(viommu, bus, devfn);
@@ -742,8 +743,9 @@ virtio_iommu_unset_iommu_device(PCIBus *bus, void *opaque, int devfn)
 
 static const PCIIOMMUOps virtio_iommu_ops = {
     .get_address_space = virtio_iommu_find_add_as,
+    .put_address_space = virtio_iommu_unset_iommu_device,
     .set_iommu_device = virtio_iommu_set_iommu_device,
-    .unset_iommu_device = virtio_iommu_unset_iommu_device,
+    //.unset_iommu_device = virtio_iommu_unset_iommu_device,
 };
 
 static int virtio_iommu_attach(VirtIOIOMMU *s,

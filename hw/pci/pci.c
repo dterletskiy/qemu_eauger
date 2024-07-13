@@ -1040,6 +1040,7 @@ static void do_pci_unregister_device(PCIDevice *pci_dev)
                                     &pci_dev->bus_master_enable_region);
     }
     address_space_destroy(&pci_dev->bus_master_as);
+    pci_device_iommu_put_address_space(pci_dev);
 }
 
 /* Extract PCIReqIDCache into BDF format */
@@ -2749,6 +2750,19 @@ AddressSpace *pci_device_iommu_address_space(PCIDevice *dev)
     return &address_space_memory;
 }
 
+void pci_device_iommu_put_address_space(PCIDevice *dev)
+{
+    PCIBus *bus;
+    PCIBus *iommu_bus;
+    int devfn;
+
+    pci_device_get_iommu_bus_devfn(dev, &iommu_bus, &bus, &devfn);
+    if (iommu_bus) {
+        iommu_bus->iommu_ops->put_address_space(bus,
+                                 iommu_bus->iommu_opaque, devfn);
+    }
+}
+
 bool pci_device_set_iommu_device(PCIDevice *dev, HostIOMMUDevice *hiod,
                                  Error **errp)
 {
@@ -2774,6 +2788,7 @@ void pci_device_unset_iommu_device(PCIDevice *dev)
 
     pci_device_get_iommu_bus_devfn(dev, &iommu_bus, NULL, NULL);
     if (iommu_bus && iommu_bus->iommu_ops->unset_iommu_device) {
+	error_report("---- %s unset iommu dev", __func__);
         return iommu_bus->iommu_ops->unset_iommu_device(pci_get_bus(dev),
                                                         iommu_bus->iommu_opaque,
                                                         dev->devfn);
