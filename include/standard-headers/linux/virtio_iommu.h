@@ -17,6 +17,7 @@
 #define VIRTIO_IOMMU_F_PROBE			4
 #define VIRTIO_IOMMU_F_MMIO			5
 #define VIRTIO_IOMMU_F_BYPASS_CONFIG		6
+#define VIRTIO_IOMMU_F_LAZY_IOTLB_FLUSH		7
 
 struct virtio_iommu_range_64 {
 	uint64_t					start;
@@ -47,6 +48,7 @@ struct virtio_iommu_config {
 #define VIRTIO_IOMMU_T_MAP			0x03
 #define VIRTIO_IOMMU_T_UNMAP			0x04
 #define VIRTIO_IOMMU_T_PROBE			0x05
+#define VIRTIO_IOMMU_T_IOTLB_FLUSH		0x06
 
 /* Status types */
 #define VIRTIO_IOMMU_S_OK			0x00
@@ -70,6 +72,7 @@ struct virtio_iommu_req_tail {
 };
 
 #define VIRTIO_IOMMU_ATTACH_F_BYPASS		(1 << 0)
+#define VIRTIO_IOMMU_ATTACH_F_LAZY		(1 << 1)
 
 struct virtio_iommu_req_attach {
 	struct virtio_iommu_req_head		head;
@@ -106,11 +109,20 @@ struct virtio_iommu_req_map {
 	struct virtio_iommu_req_tail		tail;
 };
 
+#define VIRTIO_IOMMU_UNMAP_LAZY_IOTLB_FLUSH  (1 << 0)
+
 struct virtio_iommu_req_unmap {
 	struct virtio_iommu_req_head		head;
 	uint32_t					domain;
 	uint64_t					virt_start;
 	uint64_t					virt_end;
+	uint8_t					reserved[4];
+	struct virtio_iommu_req_tail		tail;
+};
+
+struct virtio_iommu_req_iotlb_flush {
+	struct virtio_iommu_req_head		head;
+	uint32_t					domain;
 	uint8_t					reserved[4];
 	struct virtio_iommu_req_tail		tail;
 };
