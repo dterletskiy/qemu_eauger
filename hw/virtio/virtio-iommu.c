@@ -48,6 +48,7 @@
 typedef struct VirtIOIOMMUDomain {
     uint32_t id;
     bool bypass;
+    bool lazy;
     GTree *mappings;
     QLIST_HEAD(, VirtIOIOMMUEndpoint) endpoint_list;
 } VirtIOIOMMUDomain;
@@ -355,13 +356,13 @@ static void virtio_iommu_put_endpoint(gpointer data)
 
 static VirtIOIOMMUDomain *virtio_iommu_get_domain(VirtIOIOMMU *s,
                                                   uint32_t domain_id,
-                                                  bool bypass)
+                                                  bool bypass, bool lazy)
 {
     VirtIOIOMMUDomain *domain;
 
     domain = g_tree_lookup(s->domains, GUINT_TO_POINTER(domain_id));
     if (domain) {
-        if (domain->bypass != bypass) {
+        if (domain->bypass != bypass || domain->lazy != lazy) {
             return NULL;
         }
         return domain;
@@ -372,9 +373,10 @@ static VirtIOIOMMUDomain *virtio_iommu_get_domain(VirtIOIOMMU *s,
                                    NULL, (GDestroyNotify)g_free,
                                    (GDestroyNotify)g_free);
     domain->bypass = bypass;
+    domain->lazy = lazy;
     g_tree_insert(s->domains, GUINT_TO_POINTER(domain_id), domain);
     QLIST_INIT(&domain->endpoint_list);
-    trace_virtio_iommu_get_domain(domain_id);
+    trace_virtio_iommu_get_domain(domain_id, bypass, lazy);
     return domain;
 }
 
@@ -724,7 +726,8 @@ static int virtio_iommu_attach(VirtIOIOMMU *s,
 
     trace_virtio_iommu_attach(domain_id, ep_id);
 
-    if (flags & ~VIRTIO_IOMMU_ATTACH_F_BYPASS) {
+    if (flags & ~(VIRTIO_IOMMU_ATTACH_F_BYPASS |
+                  VIRTIO_IOMMU_ATTACH_F_LAZY)) {
         return VIRTIO_IOMMU_S_INVAL;
     }
 
@@ -746,7 +749,8 @@ static int virtio_iommu_attach(VirtIOIOMMU *s,
     }
 
     domain = virtio_iommu_get_domain(s, domain_id,
-                                     flags & VIRTIO_IOMMU_ATTACH_F_BYPASS);
+                                     flags & VIRTIO_IOMMU_ATTACH_F_BYPASS,
+                                     flags & VIRTIO_IOMMU_ATTACH_F_LAZY);
     if (!domain) {
         /* Incompatible bypass flag */
         return VIRTIO_IOMMU_S_INVAL;
@@ -882,9 +886,11 @@ static int virtio_iommu_unmap(VirtIOIOMMU *s,
             QLIST_FOREACH(ep, &domain->endpoint_list, next) {
                 virtio_iommu_notify_unmap(ep->iommu_mr, current_low,
                                           current_high, IOMMU_NOTIFIER_UNMAP);
-                virtio_iommu_notify_unmap(ep->iommu_mr,
-                                          current_low, current_high,
-                                          IOMMU_NOTIFIER_DEVIOTLB_UNMAP);
+            if (!domain->lazy) {
+                    virtio_iommu_notify_unmap(ep->iommu_mr,
+                                              current_low, current_high,
+                                              IOMMU_NOTIFIER_DEVIOTLB_UNMAP);
+                }
             }
             g_tree_remove(domain->mappings, iter_key);
             trace_virtio_iommu_unmap_done(domain_id, current_low, current_high);
@@ -892,6 +898,32 @@ static int virtio_iommu_unmap(VirtIOIOMMU *s,
             ret = VIRTIO_IOMMU_S_RANGE;
             break;
         }
+    }
+    return ret;
+}
+
+static int virtio_iommu_iotlb_flush(VirtIOIOMMU *s,
+                                    struct virtio_iommu_req_iotlb_flush *req)
+{
+    uint32_t domain_id = le32_to_cpu(req->domain);
+    VirtIOIOMMUDomain *domain;
+    VirtIOIOMMUEndpoint *ep;
+    int ret = VIRTIO_IOMMU_S_OK;
+
+    trace_virtio_iommu_iotlb_flush(domain_id);
+
+    domain = g_tree_lookup(s->domains, GUINT_TO_POINTER(domain_id));
+    if (!domain) {
+        return VIRTIO_IOMMU_S_NOENT;
+    }
+
+    if (domain->bypass) {
+        return VIRTIO_IOMMU_S_INVAL;
+    }
+
+    QLIST_FOREACH(ep, &domain->endpoint_list, next) {
+        virtio_iommu_notify_unmap(ep->iommu_mr, 0, UINT64_MAX,
+                                  IOMMU_NOTIFIER_DEVIOTLB_UNMAP);
     }
     return ret;
 }
@@ -988,6 +1020,7 @@ virtio_iommu_handle_req(attach)
 virtio_iommu_handle_req(detach)
 virtio_iommu_handle_req(map)
 virtio_iommu_handle_req(unmap)
+virtio_iommu_handle_req(iotlb_flush)
 
 static int virtio_iommu_handle_probe(VirtIOIOMMU *s,
                                      struct iovec *iov,
@@ -1050,6 +1083,9 @@ static void virtio_iommu_handle_command(VirtIODevice *vdev, VirtQueue *vq)
             break;
         case VIRTIO_IOMMU_T_UNMAP:
             tail.status = virtio_iommu_handle_unmap(s, iov, iov_cnt);
+            break;
+        case VIRTIO_IOMMU_T_IOTLB_FLUSH:
+            tail.status = virtio_iommu_handle_iotlb_flush(s, iov, iov_cnt);
             break;
         case VIRTIO_IOMMU_T_PROBE:
         {
@@ -1462,6 +1498,7 @@ static void virtio_iommu_device_realize(DeviceState *dev, Error **errp)
     virtio_add_feature(&s->features, VIRTIO_IOMMU_F_MMIO);
     virtio_add_feature(&s->features, VIRTIO_IOMMU_F_PROBE);
     virtio_add_feature(&s->features, VIRTIO_IOMMU_F_BYPASS_CONFIG);
+    virtio_add_feature(&s->features, VIRTIO_IOMMU_F_LAZY_IOTLB_FLUSH);
 
     qemu_rec_mutex_init(&s->mutex);
 
