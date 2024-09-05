@@ -258,17 +258,18 @@ static void virtio_iommu_notify_map(IOMMUMemoryRegion *mr, hwaddr virt_start,
 }
 
 static void virtio_iommu_notify_unmap(IOMMUMemoryRegion *mr, hwaddr virt_start,
-                                      hwaddr virt_end)
+                                      hwaddr virt_end, uint32_t flag)
 {
     IOMMUTLBEvent event;
 
-    if (!(mr->iommu_notify_flags & IOMMU_NOTIFIER_UNMAP)) {
+    if (!(mr->iommu_notify_flags & flag)) {
         return;
     }
 
-    trace_virtio_iommu_notify_unmap(mr->parent_obj.name, virt_start, virt_end);
+    trace_virtio_iommu_notify_unmap(mr->parent_obj.name,
+                                    virt_start, virt_end, flag);
 
-    event.type = IOMMU_NOTIFIER_UNMAP;
+    event.type = flag;
     event.entry.target_as = &address_space_memory;
     event.entry.perm = IOMMU_NONE;
     event.entry.translated_addr = 0;
@@ -282,8 +283,10 @@ static gboolean virtio_iommu_notify_unmap_cb(gpointer key, gpointer value,
     VirtIOIOMMUInterval *interval = (VirtIOIOMMUInterval *) key;
     IOMMUMemoryRegion *mr = (IOMMUMemoryRegion *) data;
 
-    virtio_iommu_notify_unmap(mr, interval->low, interval->high);
-
+    virtio_iommu_notify_unmap(mr, interval->low, interval->high,
+                              IOMMU_NOTIFIER_UNMAP);
+    virtio_iommu_notify_unmap(mr, interval->low, interval->high,
+                              IOMMU_NOTIFIER_DEVIOTLB_UNMAP);
     return false;
 }
 
@@ -878,7 +881,10 @@ static int virtio_iommu_unmap(VirtIOIOMMU *s,
         if (interval.low <= current_low && interval.high >= current_high) {
             QLIST_FOREACH(ep, &domain->endpoint_list, next) {
                 virtio_iommu_notify_unmap(ep->iommu_mr, current_low,
-                                          current_high);
+                                          current_high, IOMMU_NOTIFIER_UNMAP);
+                virtio_iommu_notify_unmap(ep->iommu_mr,
+                                          current_low, current_high,
+                                          IOMMU_NOTIFIER_DEVIOTLB_UNMAP);
             }
             g_tree_remove(domain->mappings, iter_key);
             trace_virtio_iommu_unmap_done(domain_id, current_low, current_high);
