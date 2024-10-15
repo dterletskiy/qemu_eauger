@@ -2,7 +2,10 @@ Arm CPU Features
 ================
 
 CPU features are optional features that a CPU of supporting type may
-choose to implement or not.  In QEMU, optional CPU features have
+choose to implement or not.  QEMU provides two different mechanisms
+to configure those features:
+
+1. For most CPU models, optional CPU features may have
 corresponding boolean CPU proprieties that, when enabled, indicate
 that the feature is implemented, and, conversely, when disabled,
 indicate that it is not implemented. An example of an Arm CPU feature
@@ -28,6 +31,16 @@ when using the KVM accelerator and when running on a host CPU type that
 supports the feature.  While ``aarch64`` currently only works with KVM,
 it could work with TCG.  CPU features that are specific to KVM are
 prefixed with "kvm-" and are described in "KVM VCPU Features".
+
+2. Alternatively, the ``custom`` CPU model allows to configure optional
+CPU features via the corresponding ID registers. The host kernel allows
+to write a subset of ID register fields. The custom model exposes
+properties for each write ID register fields. Those options are named
+SYSREG_<IDREG>_<FIELD>. IDREG and FIELD names are those used in the
+ARM ARM Reference Manual. They can also be found in the linux
+arch/arm64/tool/sysreg file which is used to automatically generate the
+description for those registers and fields. The custom model is currently
+only implemented for KVM.
 
 CPU Feature Probing
 ===================
@@ -106,6 +119,10 @@ As expected they are now all ``false``.
 
 Only the ``pmu`` CPU feature is available.
 
+Probing for the ``custom`` CPU model is working differently. CPU model
+expansion will return the list of available SYSREG properties (matching
+writable ID register fields)
+
 A note about CPU feature dependencies
 -------------------------------------
 
@@ -119,18 +136,30 @@ independently without error.  For these reasons callers should always
 attempt to make their desired changes all at once in order to ensure the
 collection is valid.
 
+When using the ``custom`` CPU model, the provided set of ID registers
+is always evaluated as a whole.
+
 A note about CPU models and KVM
 -------------------------------
 
 Named CPU models generally do not work with KVM.  There are a few cases
 that do work, e.g. using the named CPU model ``cortex-a57`` with KVM on a
-seattle host, but mostly if KVM is enabled the ``host`` CPU type must be
-used.  This means the guest is provided all the same CPU features as the
-host CPU type has.  And, for this reason, the ``host`` CPU type should
-enable all CPU features that the host has by default.  Indeed it's even
-a bit strange to allow disabling CPU features that the host has when using
-the ``host`` CPU type, but in the absence of CPU models it's the best we can
-do if we want to launch guests without all the host's CPU features enabled.
+seattle host, but mostly if KVM is enabled, either the ``host`` or the
+``custom`` CPU types must be used.
+
+Using the ``host`` type means the guest is provided all the same CPU
+features as the host CPU type has.  And, for this reason, the ``host``
+CPU type should enable all CPU features that the host has by default.
+
+In case some features need to be hidden to the guest, ``custom`` model
+shall be used instead. This is especially useful for migration purpose.
+
+The ``custom`` CPU model generally is the better choice if you want more
+flexibility or stability across different machines or with different kernel
+versions. However, even the ``custom`` CPU model will not allow configuring
+an arbitrary set of features; the ID registers must describe a subset of the
+host's features, and all differences to the host's configuration must actually
+be supported by the kernel to be deconfigured.
 
 Enabling KVM also affects the ``query-cpu-model-expansion`` QMP command.  The
 affect is not only limited to specific features, as pointed out in example
@@ -166,6 +195,16 @@ than only enabling the two we want.  This isn't the case, because, as
 disabling many SVE vector lengths would be quite verbose, the ``sve<N>`` CPU
 properties have special semantics (see "SVE CPU Property Parsing
 Semantics").
+
+The ``custom`` CPU model needs to be configured via individual ID register
+field properties, for example::
+
+  $ qemu-system-aarch64 -M virt -cpu custom,SYSREG_ID_AA64ISAR0_EL1_DP=0x0
+
+This forces ID_AA64ISAR0_EL1 DP field to 0.
+
+Note that the other CPU feature properties are not supported when using
+this model.
 
 KVM VCPU Features
 =================
