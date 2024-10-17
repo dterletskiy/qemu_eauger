@@ -21,6 +21,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/error-report.h"
 #include "hw/boards.h"
 #include "kvm_arm.h"
 #include "qapi/error.h"
@@ -98,6 +99,47 @@ static const char *cpu_model_advertised_features[] = {
     NULL
 };
 
+static CpuModelExpansionInfo *
+arm_query_custom_cpu_model_expansion(Object *obj, CpuModelExpansionType type,
+                                     CpuModelInfo *model,
+                                     Error **errp)
+{
+    /* returns id register map */
+    CpuModelExpansionInfo *expansion_info;
+    ObjectProperty *prop;
+    ObjectPropertyIterator iter;
+    QDict *qdict_out;
+
+    expansion_info = g_new0(CpuModelExpansionInfo, 1);
+    expansion_info->model = g_malloc0(sizeof(*expansion_info->model));
+    expansion_info->model->name = g_strdup(model->name);
+
+    qdict_out = qdict_new();
+
+    object_property_iter_init(&iter, obj);
+
+    while ((prop = object_property_iter_next(&iter))) {
+        QObject *value;
+
+        if (!g_str_has_prefix(prop->name, "SYSREG_")) {
+            continue;
+        }
+        value = object_property_get_qobject(obj, prop->name, &error_abort);
+        qdict_put_obj(qdict_out, prop->name, value);
+    }
+
+    if (!qdict_size(qdict_out)) {
+        qobject_unref(qdict_out);
+    } else {
+        expansion_info->model->props = QOBJECT(qdict_out);
+    }
+
+    object_unref(obj);
+
+
+    return expansion_info;
+}
+
 CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
                                                      CpuModelInfo *model,
                                                      Error **errp)
@@ -130,7 +172,8 @@ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
     if (kvm_enabled()) {
         bool supported = false;
 
-        if (!strcmp(model->name, "host") || !strcmp(model->name, "max")) {
+        if (!strcmp(model->name, "host") || !strcmp(model->name, "max") ||
+            !strcmp(model->name, "custom")) {
             /* These are kvmarm's recommended cpu types */
             supported = true;
         } else if (current_machine->cpu_type) {
@@ -151,6 +194,17 @@ CpuModelExpansionInfo *qmp_query_cpu_model_expansion(CpuModelExpansionType type,
     }
 
     obj = object_new(object_class_get_name(oc));
+
+    /* The "custom" model is handled differently. */
+    if (!strcmp(model->name, "custom")) {
+        expansion_info = arm_query_custom_cpu_model_expansion(obj, type, model,
+                                                              errp);
+        if (*errp) {
+            object_unref(obj);
+            return NULL;
+        }
+        return expansion_info;
+    }
 
     if (model->props) {
         Visitor *visitor;
