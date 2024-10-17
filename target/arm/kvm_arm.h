@@ -214,6 +214,8 @@ void kvm_arm_pvtime_init(ARMCPU *cpu, uint64_t ipa);
 
 int kvm_arm_set_irq(int cpu, int irqtype, int irq, int level);
 
+int kvm_arm_get_writable_id_regs(ARMCPU *cpu, IdRegMap *idregmap);
+
 #else
 
 /*
@@ -233,6 +235,11 @@ static inline bool kvm_arm_pmu_supported(void)
 static inline bool kvm_arm_sve_supported(void)
 {
     return false;
+}
+
+static inline int kvm_arm_get_writable_id_regs(ARMCPU *cpu, IdRegMap *idregmap)
+{
+    return -ENOSYS;
 }
 
 /*
