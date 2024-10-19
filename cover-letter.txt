@@ -1,0 +1,127 @@
+***********************************************************************
+
+Title: Introduce a customizable aarch64 KVM host model 
+
+This RFC series introduces a KVM host "custom" model.
+
+Since v6.7 kernel, KVM/arm allows the userspace to overwrite the values
+of a subset of ID regs. The list of writable fields continues to grow.
+The feature ID range is defined as the AArch64 System register space
+with op0==3, op1=={0, 1, 3}, CRn==0, CRm=={0-7}, op2=={0-7}.
+
+The custom model uses this capability and allows to tune the host
+passthrough model by overriding some of the host passthrough ID regs. 
+
+The end goal is to get more flexibility when migrating guests
+between different machines. We would like the upper software layer
+to be able detect how tunable the vpcu is on both source and destination
+and accordingly define a customized KVM host model that can fit
+both ends. With the legacy host passthrough model, this migration
+use case would fail.
+
+QEMU queries the host kernel to get the list of writable ID reg
+fields and expose all the writable fields as uint64 properties. Those
+are named "SYSREG_<REG>_<FIELD>". REG and FIELD names are those
+described in ARM ARM Reference manual and linux arch/arm64/tools/sysreg.
+Some awk scriptsintroduced in the series help parsing the sysreg file and
+generate some code. those scripts are used in a similar way as
+scripts/update-linux-headers.sh.  In case the ABI gets broken, it is
+still possible to manually edit the generated code. However it is
+globally expected the REG and FIELD names are stable.
+
+The list of SYSREG_ID properties can be retrieved through the qmp
+monitor using query-cpu-model-expansion [2].
+
+The first part of the series mostly consists in migrating id reg
+storage from named fields in ARMISARegisters to anonymous index
+ordered storage in an IdRegMap struct array. The goal is to have
+a generic way to store all id registers, also compatible with the
+way we retrieve their writable capability at kernel level through
+the KVM_ARM_GET_REG_WRITABLE_MASKS ioctl. Having named fields
+prevented us from getting this scalability/genericity. Although the
+change is invasive  it is quite straightforward and should be easy
+to be reviewed.
+
+Then the bulk of the job is to retrieve the writable ID fields and
+match them against a "human readable" description of those fields.
+We use awk scripts, derived from kernel arch/arm64/tools/gen-sysreg.awk
+(so all the credit to Mark Rutland) that populates a data structure
+which describes all the ID regs in sysreg and their fields. We match
+writable ID reg fields with those latter and dynamically create a
+uint64 property. 
+
+Then we need to extend the list of id regs read from the host
+so that we get a chance to let their value overriden and write them
+back into KVM .
+
+This expectation is that this custom KVM host model can prepare for
+the advent of named models. Introducing named models with reduced
+and explicitly defined features is the next step.
+
+Obviously this series is not able to cope with non writable ID regs.
+For instance the problematic of MIDR/REVIDR setting is not handled
+at the moment.
+
+
+TESTS:
+- with few IDREG fields that can be easily examined from guest
+  userspace:
+  -cpu custom,SYSREG_ID_AA64ISAR0_EL1_DP=0x0,SYSREG_ID_AA64ISAR1_EL1_DPB=0x0
+- migration between custom models
+- TCG A57 non regressions. Light testing for TCG though. Deep
+  review may detect some mistakes when migrating between named fields
+  and IDRegMap storage
+- light testing of introspection. Testing a given writable ID field
+  value with query-cpu-model-expansion is not supported yet.
+
+TODO/QUESTIONS:
+- Some idreg named fields are not yet migrated to an array storage.
+  some of them are not in isar struct either. Maybe we could have
+  handled TCG and KVM separately and it may turn out that this
+  conversion is unneeded. So as it is quite cumbersome I prefered
+  to keep it for a later stage.
+- the custom model does not come with legacy host properties
+  such as SVE, MTE, expecially those that induce some KVM
+  settings. This needs to be fixed.
+- The custom model and its exposed properties depend on the host
+  capabilities. More and more IDREG become writable meaning that
+  the custom model gains more properties over the time and it is
+  host linux dependent. At the moment there is no versioning in
+  place. By default the custom model is a host passthrough model
+  (besides the legacy functions). So if the end-user tries to set
+  a field that is not writable from a kernel pov, it will fail.
+  Nevertheless a versionned custom model could constrain the props
+  exposed, independently on the host linux capabilities.
+- the QEMU layer does not take care of IDREG field value consistency.
+  The kernel neither. I imagine this could be the role of the upper
+  layer to implement a vcpu profile that makes sure settings are
+  consistent. Here we come to "named" models. What should they look
+  like on ARM?
+- Implementation details:
+  -  it seems there are a lot of duplications in
+  the code. ID regs are described in different manners, with different
+  data structs, for TCG, now for KVM.
+  - The IdRegMap->regs is sparsely populated. Maybe a better data
+  struct could be used, although this is the one chosen for the kernel
+  uapi.
+
+References:
+
+[1] [PATCH v12 00/11] Support writable CPU ID registers from userspace
+https://lore.kernel.org/all/20230609190054.1542113-1-oliver.upton@linux.dev/
+
+[2]
+qemu-system-aarch64 -qmp unix:/home/augere/TEST/QEMU/qmp-sock,server,nowait -M virt --enable-kvm -cpu custom
+scripts/qmp/qmp-shell /home/augere/TEST/QEMU/qmp-sock
+Welcome to the QMP low-level shell!
+Connected to QEMU 9.0.50
+(QEMU) query-cpu-model-expansion type=full model={"name":"custom"}
+
+[3]
+KVM_CAP_ARM_SUPPORTED_REG_MASK_RANGES
+KVM_ARM_GET_REG_WRITABLE_MASKS
+Documentation/virt/kvm/api.rst
+
+[4] linux "sysreg" file
+linux/arch/arm64/tools/sysreg and gen-sysreg.awk
+./tools/include/generated/asm/sysreg-defs.h
