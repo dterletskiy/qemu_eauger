@@ -228,6 +228,8 @@ int kvm_arm_set_irq(int cpu, int irqtype, int irq, int level);
 
 void kvm_arm_enable_mte(Object *cpuobj, Error **errp);
 
+int kvm_arm_get_writable_id_regs(ARMCPU *cpu, IdRegMap *idregmap);
+
 #else
 
 /*
@@ -256,6 +258,11 @@ static inline bool kvm_arm_el2_supported(void)
 >>>>>>> b9d1fca445 (target/arm/kvm: Add helper to detect EL2 when using KVM)
 {
     return false;
+}
+
+static inline int kvm_arm_get_writable_id_regs(ARMCPU *cpu, IdRegMap *idregmap)
+{
+    return -ENOSYS;
 }
 
 /*
